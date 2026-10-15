@@ -13,8 +13,7 @@ scraper = cloudscraper.create_scraper(
     }
 )
 
-# API ufficiale aperta di Kitsu (stabile, veloce e mai bloccata)
-KITSU_API_URL = "https://kitsu.io"
+KITSU_API_URL = "https://kitsu.io/api/edge/anime"
 BASE_URL = "https://animeunity.so"
 
 @app.route('/')
@@ -28,23 +27,27 @@ def search():
         return jsonify([])
 
     try:
-        # Interroghiamo il database di Kitsu passando la query di ricerca
         url = f"{KITSU_API_URL}?filter[text]={query}&page[limit]=10"
-        response = scraper.get(url, timeout=10)
+        
+        # UTILI ED OBBLIGATORI: Diciamo a Kitsu che siamo un'applicazione conforme alle sue regole JSON:API
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/vnd.api+json',
+            'Content-Type': 'application/vnd.api+json'
+        }
+        
+        response = scraper.get(url, headers=headers, timeout=10)
         data = response.json()
         results = []
 
         if "data" in data:
             for item in data["data"]:
                 attrs = item.get("attributes", {})
-                # Peschiamo il titolo in inglese o quello canonico
                 title = attrs.get("canonicalTitle") or attrs.get("en") or attrs.get("en_jp")
                 
-                # Creiamo lo slug dell'ID per il 3DS usando il titolo in minuscolo
+                # Creiamo l'ID compatibile per la ricerca del 3DS
                 anime_slug = title.lower().replace(" ", "-")
                 anime_slug = re.sub(r'[^a-z0-9-]', '', anime_slug)
-                
-                # Struttura dell'ID finale che viaggerà verso l'app (es: 1234-one-piece)
                 anime_id = f"{item.get('id')}-{anime_slug}"
 
                 if title and anime_id:
@@ -53,17 +56,18 @@ def search():
                         'id': anime_id
                     })
 
-        # Fallback locale istantaneo se la ricerca è troppo specifica
+        # Se il database non restituisce nulla, creiamo al volo un elemento con la parola cercata
         if not results:
             results.append({
-                'title': f"{query.capitalize()} - Streaming ITA",
+                'title': f"{query.capitalize()} - Avvia Streaming",
                 'id': f"custom-{query.lower().replace(' ', '-')}"
             })
 
         return jsonify(results)
     except Exception as e:
+        # Mostriamo l'errore direttamente nella lista se qualcosa va storto
         return jsonify([{
-            'title': f"Errore Proxy Kitsu: {str(e)[:15]}",
+            'title': f"Errore Proxy: {str(e)[:20]}",
             'id': "errore"
         }])
 
@@ -74,10 +78,6 @@ def video():
         return jsonify({'url': ''})
 
     try:
-        # Estrarre il nome pulito dall'ID
-        clean_name = video_id.split('-', 1)[-1] if '-' in video_id else video_id
-        
-        # Il server proxy prova a chiedere lo stream ad AnimeUnity
         url = f"{BASE_URL}/anime/{video_id}"
         headers = {'User-Agent': 'Mozilla/5.0', 'Referer': BASE_URL}
         response = scraper.get(url, headers=headers, timeout=10)
@@ -87,7 +87,6 @@ def video():
         if mp4_match:
             video_url = mp4_match.group(1)
         else:
-            # Flusso video liquido ad alta compatibilità per il lettore del 3DS
             video_url = "http://zencdn.net" 
 
         video_url_http = video_url.replace("https://", "http://")
