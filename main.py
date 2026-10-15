@@ -3,27 +3,26 @@ from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-# DATABASE LOCALE STATICO: Nessun collegamento esterno = zero blocchi di rete!
-# Puoi espandere questa lista a piacimento aggiungendo altri anime e link video (.mp4)
+# DATABASE CON DATI COMPLETI: Includiamo anteprime reali (.png/.jpg) e dettagli grafici
 ANIME_DATABASE = [
     {
         "title": "One Piece (Episodi ITA)",
         "id": "one-piece-stream",
-        "video_url": "http://zencdn.net" # Video di test fluido ad alta compatibilità 3DS
+        "author": "AnimeUnity",
+        "views": "1.2M visualizzazioni",
+        "published": "Oggi",
+        "duration": "24:00",
+        "thumbnail": "https://justwatch.com", # Immagine reale
+        "video_url": "http://zencdn.net"
     },
     {
         "title": "Naruto Shippuden (ITA)",
         "id": "naruto-stream",
-        "video_url": "http://zencdn.net"
-    },
-    {
-        "title": "Demon Slayer (Sub ITA)",
-        "id": "demon-slayer-stream",
-        "video_url": "http://zencdn.net"
-    },
-    {
-        "title": "Attack on Titan (ITA)",
-        "id": "aot-stream",
+        "author": "AnimeUnity",
+        "views": "900K visualizzazioni",
+        "published": "Ieri",
+        "duration": "23:20",
+        "thumbnail": "https://justwatch.com",
         "video_url": "http://zencdn.net"
     }
 ]
@@ -39,19 +38,29 @@ def search():
         return jsonify([])
 
     results = []
-    # Cerchiamo all'interno del nostro database locale
     for anime in ANIME_DATABASE:
-        if query in anime["title"].lower():
+        if query in anime["title"].lower() or query == "all" or query == "piece":
+            # Inviamo al 3DS esattamente la struttura ricca che si aspetta la UI di FourthTube
             results.append({
                 "title": anime["title"],
-                "id": anime["id"]
+                "id": anime["id"],
+                "author": anime["author"],
+                "views": anime["views"],
+                "published": anime["published"],
+                "duration": anime["duration"],
+                "thumbnail": anime["thumbnail"]
             })
 
-    # Fallback dinamico se l'utente cerca qualcosa che non è in lista
+    # Se non trova nulla, manda comunque un elemento grafico valido per non far crashare la UI
     if not results:
         results.append({
-            "title": f"{query.capitalize()} (Avvia Streaming Diretto)",
-            "id": f"custom-{query.replace(' ', '-')}"
+            "title": f"Avvia {query.capitalize()}",
+            "id": f"custom-{query}",
+            "author": "Generico",
+            "views": "0",
+            "published": "Ora",
+            "duration": "00:00",
+            "thumbnail": ""
         })
 
     return jsonify(results)
@@ -59,15 +68,9 @@ def search():
 @app.route('/video')
 def video():
     video_id = request.args.get('id', '')
-    if not video_id:
-        return jsonify({'url': ''})
-
-    # Cerchiamo l'URL del video abbinato all'ID nel database
     for anime in ANIME_DATABASE:
         if anime["id"] == video_id:
             return jsonify({'url': anime["video_url"]})
-
-    # Fallback video universale se l'ID è personalizzato o non trovato
     return jsonify({'url': 'http://zencdn.net'})
 
 if __name__ == '__main__':
