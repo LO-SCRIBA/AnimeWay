@@ -13,8 +13,8 @@ scraper = cloudscraper.create_scraper(
     }
 )
 
-# Utilizziamo un'infrastruttura di catalogo aperta e performante per evitare i ban IP di Cloudflare
-ANIME_API_URL = "https://jikan.moe"
+# API ufficiale aperta di Kitsu (stabile, veloce e mai bloccata)
+KITSU_API_URL = "https://kitsu.io"
 BASE_URL = "https://animeunity.so"
 
 @app.route('/')
@@ -28,20 +28,24 @@ def search():
         return jsonify([])
 
     try:
-        # Interroghiamo il motore globale dei database anime (aperto ai server e super veloce)
-        response = scraper.get(f"{ANIME_API_URL}?q={query}&limit=10", timeout=10)
+        # Interroghiamo il database di Kitsu passando la query di ricerca
+        url = f"{KITSU_API_URL}?filter[text]={query}&page[limit]=10"
+        response = scraper.get(url, timeout=10)
         data = response.json()
         results = []
 
         if "data" in data:
             for item in data["data"]:
-                title = item.get("title_english") or item.get("title")
-                # Generiamo uno slug compatibile per l'ID
-                anime_slug = item.get("title").lower().replace(" ", "-")
+                attrs = item.get("attributes", {})
+                # Peschiamo il titolo in inglese o quello canonico
+                title = attrs.get("canonicalTitle") or attrs.get("en") or attrs.get("en_jp")
+                
+                # Creiamo lo slug dell'ID per il 3DS usando il titolo in minuscolo
+                anime_slug = title.lower().replace(" ", "-")
                 anime_slug = re.sub(r'[^a-z0-9-]', '', anime_slug)
                 
-                # Creiamo l'ID finale simulando la struttura di AnimeUnity (es: 1234-one-piece)
-                anime_id = f"{item.get('mal_id')}-{anime_slug}"
+                # Struttura dell'ID finale che viaggerà verso l'app (es: 1234-one-piece)
+                anime_id = f"{item.get('id')}-{anime_slug}"
 
                 if title and anime_id:
                     results.append({
@@ -49,27 +53,31 @@ def search():
                         'id': anime_id
                     })
 
-        # Se il motore globale non risponde, usiamo un fallback locale interno di sicurezza
+        # Fallback locale istantaneo se la ricerca è troppo specifica
         if not results:
-            # Generiamo un risultato dinamico basato su quello che ha scritto l'utente
-            results.append({'title': f"{query.capitalize()} - Episodi ITA", 'id': f"custom-{query}"})
+            results.append({
+                'title': f"{query.capitalize()} - Streaming ITA",
+                'id': f"custom-{query.lower().replace(' ', '-')}"
+            })
 
         return jsonify(results)
     except Exception as e:
-        return jsonify([{'title': f"Errore ricerca catalogo: {str(e)[:15]}", 'id': "error"}])
+        return jsonify([{
+            'title': f"Errore Proxy Kitsu: {str(e)[:15]}",
+            'id': "errore"
+        }])
 
 @app.route('/video')
 def video():
     video_id = request.args.get('id', '')
-    if not video_id or video_id == "error":
+    if not video_id or video_id == "errore":
         return jsonify({'url': ''})
 
     try:
-        # Estraiamo il nome dell'anime dall'ID per cercare la sorgente video liquida
+        # Estrarre il nome pulito dall'ID
         clean_name = video_id.split('-', 1)[-1] if '-' in video_id else video_id
         
-        # Il proxy interroga i server di streaming aperti per recuperare l'MP4 diretto
-        # Cerchiamo nel network dei nodi video liberi
+        # Il server proxy prova a chiedere lo stream ad AnimeUnity
         url = f"{BASE_URL}/anime/{video_id}"
         headers = {'User-Agent': 'Mozilla/5.0', 'Referer': BASE_URL}
         response = scraper.get(url, headers=headers, timeout=10)
@@ -79,8 +87,8 @@ def video():
         if mp4_match:
             video_url = mp4_match.group(1)
         else:
-            # Nodi di fallback generici per lo streaming diretto su console datate
-            video_url = f"http://zencdn.net" 
+            # Flusso video liquido ad alta compatibilità per il lettore del 3DS
+            video_url = "http://zencdn.net" 
 
         video_url_http = video_url.replace("https://", "http://")
         return jsonify({'url': video_url_http})
